@@ -1,0 +1,840 @@
+select * from Employees;
+select * from Departments;
+select * from Jobs;
+select * from Job_History;
+select * from Regions;
+select * from Countries;
+select * from Locations;
+select * from Customers;
+select * from Products;
+select * from Orders;
+select * from Order_Items;
+select * from Warehouses;
+select * from Inventories;
+select * from Promotions;
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------- STAR SCHEMA VERSION 1 CREATION SQL COMMANDS START BELOW -------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF SALES STAR SCHEMA BEGINS HERE
+-----------------------------------------------------------------------------------------------------
+---TEMPORAL USING MANUAL DISCOUNT CONSTRUCTION WHICH IS MORE LOGICAL 
+create table product_history as 
+select 
+        
+       oi.product_id,
+       to_char(o.order_date,'YYYY')||to_char(o.order_date,'MM')||to_char(o.order_date,'DD') as time_id,
+       case when
+       ((1-(oi.unit_price / p.list_price))*100) >= 0 then round(((1-(oi.unit_price / p.list_price))*100),2) else 0 end as discount
+
+from
+    
+        order_items oi,
+        orders o,
+        products p
+        
+where
+
+        o.order_id = oi.order_id and
+        oi.product_id = p.product_id
+        
+order by p.product_id;
+
+select * from product_history;
+
+
+
+---ALTERNATE WAY TO CREATE TEMPORAL USING PROMOTIONS BUT NOT COMPLETELY USEFUL
+
+select 
+        r.product_id,
+        to_char(o.order_date,'YYYY')||to_char(o.order_date,'MM')||to_char(o.order_date,'DD') as time_id, 
+        p.promotion_id,
+        p.discount,
+        p.pro_desc
+        
+
+from 
+        orders o,
+        order_items r,
+        promotions p
+        
+where
+
+        o.order_id = r.order_id and
+        o.promotion_id = p.promotion_id
+order by product_id;
+
+---Create Order_mode dimension---
+
+create table order_mode_DIM as
+select distinct order_mode from orders;
+
+select * from order_mode_DIM;
+
+---Create Region dimension---
+
+create table region_DIM as
+select * from regions;
+
+select * from region_DIM;
+
+---Create Season dimensin---
+
+create table season_DIM
+(
+    season_id    numeric(10),
+    season_desc  varchar2(10)
+);
+
+                            ----------------INSERTING VALUES INTO SEASON DIM----------------
+                                                   
+insert into season_DIM values (1,'Spring');
+insert into season_DIM values (2,'Summer');
+insert into season_DIM values (3,'Autumn');
+insert into season_DIM values (4,'Winter');
+
+select * from season_dim;
+
+
+---Create Bridge table---
+create table bridge_table as
+select distinct * from inventories;
+
+select * from bridge_table;
+
+---Create WarehouseToBridge table---
+create table WarehouseToBridge as
+select warehouse_id,warehouse_name from Warehouses;
+
+select * from WarehouseToBridge;
+
+
+---Create Product dimension---
+---I USED DISTICT HERE BECAUSE THERE ARE SOME DUPLICATE ENTRIES IN THE INVENTORIES TABLE--
+
+create table product_DIM as
+select 
+
+        p.product_id,
+        p.product_name,
+        p.product_description,
+        p.category_id,
+        p.list_price,
+        p.min_price,
+        1/count(i.warehouse_id) as weightFactor,
+        LISTAGG (i.warehouse_id, '_') Within Group (Order By i.warehouse_id) As wareHouseGroupList
+
+from
+
+        products p,
+        (select distinct * from inventories)i
+        
+where 
+
+        p.product_id = i.product_id
+        
+group by 
+
+        p.product_id,
+        p.product_name,
+        p.product_description,
+        p.category_id,
+        p.list_price,
+        p.min_price;
+
+select * from product_dim;
+
+
+---create time-id dimension---
+
+Create table time_DIM as
+    SELECT distinct to_char(order_date,'YYYY')||to_char(order_date,'MM')||to_char(order_date,'DD') as time_id,
+                    to_char(order_date,'YYYY') AS year,to_char(order_date,'MM') as month,to_char(order_date,'DD') as day
+FROM orders;
+
+select * from time_dim;
+
+
+
+---CREATE SALES_TEMP_FACT_V1---
+
+
+create table sales_temp_fact_v1 as
+select 
+        
+        o.order_id,
+        o.order_mode,
+        o.order_date,
+        r.region_id,
+        to_char(order_date,'YYYY')||to_char(order_date,'MM')||to_char(order_date,'DD') as time_id,
+        p.product_id,
+        oi.unit_price * oi.quantity as total_sales
+
+from    orders o,
+        regions r,
+        products p,
+        countries c,
+        order_items oi,
+        customers cu
+        
+where
+
+        o.order_id = oi.order_id            and
+        oi.product_id = p.product_id        and
+        o.customer_id = cu.customer_id      and
+        cu.country_id = c.country_id        and
+        c.region_id = r.region_id;
+        
+select * from sales_temp_fact_v1;
+
+alter table sales_temp_fact_v1 add (season_id number);
+
+update sales_temp_fact_v1
+set season_id = 1
+where to_char(order_date,'MM') >= '01' and
+      to_char(order_date,'MM') <= '03';
+
+update sales_temp_fact_v1
+set season_id = 2
+where to_char(order_date,'MM') >= '04' and
+      to_char(order_date,'MM') <= '07';
+
+update sales_temp_fact_v1
+set season_id = 3
+where to_char(order_date,'MM') >= '08' and
+      to_char(order_date,'MM') <= '10';
+
+update sales_temp_fact_v1
+set season_id = 4
+where season_id is NULL;
+
+
+
+---CREATE SALES_FACT_V1---
+
+Create table sales_fact_V1 as
+select
+
+        t.order_mode,
+        t.season_id,
+        t.region_id,
+        t.time_id,
+        t.product_id,
+        sum(t.total_sales) as total_sales,
+        count(*) as total_orders
+
+
+from
+
+        sales_temp_fact_v1 t
+        
+group by
+
+        t.order_mode,
+        t.season_id,
+        t.region_id,
+        t.time_id,
+        t.product_id;
+
+
+select * from sales_fact_V1;
+
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF SALES STAR SCHEMA ENDS HERE
+-----------------------------------------------------------------------------------------------------
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF CUSTOMER STAR SCHEMA BEGINS HERE
+-----------------------------------------------------------------------------------------------------
+
+---Create credit_type dimension
+
+
+create table credit_type_DIM 
+(
+    credit_id        numeric(10),
+    type_desc        varchar2(30),
+    start_range      numeric(10),
+    end_range        numeric(10)
+);
+
+
+insert into credit_type_DIM values (1,'Low',0,1500);
+insert into credit_type_DIM values (2,'Medium',1501,3500);
+insert into credit_type_DIM values (3,'High',3501,6000);
+
+select * from credit_type_DIM;
+
+
+---Create country dimension
+
+create table country_DIM as
+select * from countries;
+
+select * from country_dim;
+
+
+---Create Customer_temp_fact_v1
+
+create table Customer_temp_fact_v1 as
+select 
+        c.customer_id,
+        c.country_id,
+        c.credit_limit
+from
+        customers c;
+        
+alter table Customer_temp_fact_v1 add (credit_id number);
+
+update Customer_temp_fact_v1
+    set credit_id = 1
+    where credit_limit >=0 and
+          credit_limit <= 1500;
+    
+update Customer_temp_fact_v1
+    set credit_id = 2
+    where credit_limit >=1501 and
+          credit_limit <= 3500;
+
+update Customer_temp_fact_v1
+    set credit_id = 3
+    where credit_limit >=3501 and
+          credit_limit <= 6000;
+
+select * from Customer_temp_fact_v1;
+
+
+
+---Create Customer_fact_v1
+
+create table Customer_fact_V1 as
+select 
+        t.country_id,
+        t.credit_id,
+        count(*) as total_customers
+from
+        Customer_temp_fact_v1 t     
+group by
+        t.country_id,
+        t.credit_id;
+
+select * from Customer_fact_V1;
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF CUSTOMER STAR SCHEMA ENDS HERE
+-----------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF EMPLOYEE STAR SCHEMA BEGINS HERE
+-----------------------------------------------------------------------------------------------------
+
+---Create time dimension
+
+
+create table e_time_DIM as
+select distinct to_char(hire_date,'YYYY')||to_char(hire_date,'MM') as time_id,
+        to_char(hire_date,'YYYY') as year,
+        to_char(hire_date,'MM') as month
+from employees
+order by to_char(hire_date,'YYYY')||to_char(hire_date,'MM');
+
+
+select * from e_time_DIM;
+---Create city dimesion
+
+create table city_DIM as
+select distinct city from locations;
+
+select * from city_DIM;
+
+
+---Create Job dimension
+
+create table job_DIM as
+select distinct * from jobs;
+
+select * from job_DIM;
+
+
+---Create Department dimension
+
+create table department_DIM as
+select * from departments;
+
+select * from department_DIM;
+
+
+---Create Location dimension
+
+create table location_DIM as
+select * from locations;
+
+select * from location_dim;
+
+---Create Fact table for employees
+create table Employee_fact_V1 as
+select 
+
+        e.department_id,
+        e.job_id,
+        to_char(e.hire_date,'YYYY')||to_char(e.hire_date,'MM') as time_id,
+        l.country_id,
+        l.city,
+        count(*) as total_employees,
+        sum(e.salary) as total_salary
+        
+from
+
+        locations l,
+        employees e,
+        departments d
+        
+where
+
+        e.department_id = d.department_id and
+        d.location_id = l.location_id
+        
+        
+group by
+
+        
+        e.department_id,
+        e.job_id,
+        to_char(e.hire_date,'YYYY')||to_char(e.hire_date,'MM'),
+        l.country_id,
+        l.city
+        
+order by to_char(e.hire_date,'YYYY')||to_char(e.hire_date,'MM');
+commit;
+
+
+select * from Employee_fact_V1;
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF EMPLOYEE STAR SCHEMA ENDS HERE
+-----------------------------------------------------------------------------------------------------
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------- STAR SCHEMA VERSION 1 CREATION SQL COMMANDS END HERE -------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------- STAR SCHEMA VERSION 2 CREATION SQL COMMANDS START BELOW -------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF SALES STAR SCHEMA BEGINS HERE
+-----------------------------------------------------------------------------------------------------
+---TEMPORAL USING MANUAL DISCOUNT CONSTRUCTION WHICH IS MORE LOGICAL
+
+create table product_history_V2 as 
+select product_id,
+       product_name,
+       list_price
+
+from   products;
+
+select * from product_history_V2;
+
+---Create Order_mode dimension---
+
+create table order_mode_DIM_V2 as
+select distinct order_mode from orders;
+
+select * from order_mode_DIM_V2;
+
+
+---Create Region dimension---
+
+create table region_DIM_V2 as
+select * from regions;
+
+select * from region_DIM_V2;
+
+---Create Season dimensin---
+
+create table season_DIM_V2
+(
+    season_id    numeric(10),
+    season_desc  varchar2(10)
+);
+
+                            ----------------INSERTING VALUES INTO SEASON DIM----------------
+                                                   
+insert into season_DIM_V2 values (1,'Spring');
+insert into season_DIM_V2 values (2,'Summer');
+insert into season_DIM_V2 values (3,'Autumn');
+insert into season_DIM_V2 values (4,'Winter');
+
+select * from season_dim_V2;
+
+
+---Create Bridge table---
+create table bridge_table_V2 as
+select distinct * from inventories;
+
+select * from bridge_table_V2;
+
+
+---Create WarehouseToBridge table---
+create table WarehouseToBridge_V2 as
+select warehouse_id,warehouse_name from Warehouses;
+
+select * from WarehouseToBridge_V2;
+
+
+---Create Product dimension---
+---I USED DISTICT HERE BECAUSE THERE ARE SOME DUPLICATE ENTRIES IN THE INVENTORIES TABLE--
+
+create table product_DIM_V2 as
+select 
+
+        p.product_id,
+        p.product_name,
+        p.product_description,
+        p.category_id,
+        p.list_price,
+        p.min_price,
+        1/count(i.warehouse_id) as weightFactor,
+        LISTAGG (i.warehouse_id, '_') Within Group (Order By i.warehouse_id) As wareHouseGroupList
+
+from
+
+        products p,
+        (select distinct * from inventories)i
+        
+where 
+
+        p.product_id = i.product_id
+        
+group by 
+
+        p.product_id,
+        p.product_name,
+        p.product_description,
+        p.category_id,
+        p.list_price,
+        p.min_price;
+
+select * from product_dim_V2;
+
+
+---create time-id dimension---
+Create table time_DIM_V2 as
+    SELECT distinct to_char(order_date,'YYYY')||to_char(order_date,'MM') as time_id,
+                    to_char(order_date,'YYYY') AS year,to_char(order_date,'MM') as month
+FROM orders;
+
+select * from time_dim_V2;
+
+
+---CREATE SALES_TEMP_FACT_V2---
+
+create table sales_temp_fact_V2 as
+select 
+        
+        o.order_id,
+        o.order_mode,
+        o.order_date,
+        r.region_id,
+        to_char(order_date,'YYYY')||to_char(order_date,'MM') as time_id,
+        p.product_id,
+        oi.unit_price * oi.quantity as total_sales
+
+from    orders o,
+        regions r,
+        products p,
+        countries c,
+        order_items oi,
+        customers cu
+        
+where
+
+        o.order_id = oi.order_id            and
+        oi.product_id = p.product_id        and
+        o.customer_id = cu.customer_id      and
+        cu.country_id = c.country_id        and
+        c.region_id = r.region_id;
+        
+select * from sales_temp_fact_V2 order by product_id;
+
+alter table sales_temp_fact_V2 add (season_id number);
+
+update sales_temp_fact_V2
+set season_id = 1
+where to_char(order_date,'MM') >= '01' and
+      to_char(order_date,'MM') <= '03';
+
+update sales_temp_fact_V2
+set season_id = 2
+where to_char(order_date,'MM') >= '04' and
+      to_char(order_date,'MM') <= '07';
+
+update sales_temp_fact_V2
+set season_id = 3
+where to_char(order_date,'MM') >= '08' and
+      to_char(order_date,'MM') <= '10';
+
+update sales_temp_fact_V2
+set season_id = 4
+where season_id is NULL;
+
+
+
+
+---CREATE SALES_FACT_V2---
+Create table sales_fact_V2 as
+select
+
+        t.order_mode,
+        t.season_id,
+        t.region_id,
+        t.time_id,
+        t.product_id,
+        sum(t.total_sales) as total_sales,
+        count(*) as total_orders
+
+
+from
+
+        sales_temp_fact_V2 t
+        
+group by
+
+        t.order_mode,
+        t.season_id,
+        t.region_id,
+        t.time_id,
+        t.product_id;
+
+
+select * from sales_fact_V2;
+
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF SALES STAR SCHEMA ENDS HERE
+-----------------------------------------------------------------------------------------------------
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF CUSTOMER STAR SCHEMA BEGINS HERE
+-----------------------------------------------------------------------------------------------------
+
+
+---Create credit_type dimension
+
+create table credit_type_DIM_V2 
+(
+    credit_id        numeric(10),
+    type_desc        varchar2(30),
+    start_range      numeric(10),
+    end_range        numeric(10)
+);
+
+
+insert into credit_type_DIM_V2 values (1,'Low',0,1500);
+insert into credit_type_DIM_V2 values (2,'Medium',1501,3500);
+insert into credit_type_DIM_V2 values (3,'High',3501,6000);
+
+select * from credit_type_DIM_V2;
+
+
+---Create country dimension
+
+create table country_DIM_V2 as
+select c.country_id,
+       c.country_name,
+       r.region_name
+       
+from   countries c,
+       regions r
+
+where  c.region_id = r.region_id;
+
+select * from country_dim_V2;
+
+
+
+---Create Customer_temp_fact_V2
+create table Customer_temp_fact_V2 as
+select 
+        c.customer_id,
+        c.country_id,
+        c.credit_limit
+from
+        customers c;
+        
+alter table Customer_temp_fact_V2 add (credit_id number);
+
+update Customer_temp_fact_V2
+    set credit_id = 1
+    where credit_limit >=0 and
+          credit_limit <= 1500;
+    
+update Customer_temp_fact_V2
+    set credit_id = 2
+    where credit_limit >=1501 and
+          credit_limit <= 3500;
+
+update Customer_temp_fact_V2
+    set credit_id = 3
+    where credit_limit >=3501 and
+          credit_limit <= 6000;
+
+select * from Customer_temp_fact_V2;
+
+---Create Customer_fact_V2
+create table Customer_fact_V2 as
+select 
+        t.country_id,
+        t.credit_id,
+        count(*) as total_customers
+from
+        Customer_temp_fact_V2 t     
+group by
+        t.country_id,
+        t.credit_id;
+
+select * from Customer_fact_V2;
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF CUSTOMER STAR SCHEMA ENDS HERE
+-----------------------------------------------------------------------------------------------------
+
+
+
+
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF EMPLOYEE STAR SCHEMA BEGINS HERE
+-----------------------------------------------------------------------------------------------------
+
+---Create time dimension
+
+
+create table e_time_DIM_V2 as
+select distinct to_char(hire_date,'YYYY')||to_char(hire_date,'MM') as time_id,
+        to_char(hire_date,'YYYY') as year,
+        to_char(hire_date,'MM') as month
+from employees
+order by to_char(hire_date,'YYYY')||to_char(hire_date,'MM');
+
+
+select * from e_time_DIM_V2;
+
+
+---Create city dimesion
+
+create table city_DIM_V2 as
+select distinct city from locations;
+
+select * from city_DIM_V2;
+
+
+---Create Job dimension
+
+create table job_DIM_V2 as
+select distinct * from jobs;
+
+select * from job_DIM_V2;
+
+
+---Create Department dimension
+
+create table department_DIM_V2 as
+select * from departments;
+
+select * from department_DIM_V2;
+
+
+
+---Create Location dimension
+
+create table location_DIM_V2 as
+select * from locations;
+
+select * from location_dim_V2;
+
+
+
+
+
+---Create Fact table for employees
+create table Employee_fact_V2 as
+select 
+
+        e.department_id,
+        e.job_id,
+        to_char(e.hire_date,'YYYY')||to_char(e.hire_date,'MM') as time_id,
+        l.country_id,
+        l.city,
+        count(*) as total_employees,
+        sum(e.salary) as total_salary
+        
+from
+
+        locations l,
+        employees e,
+        departments d
+        
+where
+
+        e.department_id = d.department_id and
+        d.location_id = l.location_id
+        
+        
+group by
+
+        
+        e.department_id,
+        e.job_id,
+        to_char(e.hire_date,'YYYY')||to_char(e.hire_date,'MM'),
+        l.country_id,
+        l.city
+        
+order by to_char(e.hire_date,'YYYY')||to_char(e.hire_date,'MM');
+commit;
+
+
+select * from Employee_fact_V2;
+-----------------------------------------------------------------------------------------------------
+--                          CREATION OF EMPLOYEE STAR SCHEMA ENDS HERE
+-----------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------- STAR SCHEMA VERSION 2 CREATION SQL COMMANDS END HERE -------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+

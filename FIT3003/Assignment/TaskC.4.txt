@@ -1,0 +1,237 @@
+
+-------------Reports with Proper sub-totals---------------------------
+----------------------------------------------------------------------
+
+--What is the total salary by each department and each job in each month?
+
+
+
+
+--USING ROLLUP
+
+select 
+        decode(grouping(d.department_name),1,'All_Departments',d.department_name) as departmentName,
+        decode(grouping(j.job_title),1,'All_jobs',j.job_title) as jobTitle,
+        decode(grouping(et.month),1,'All_months',et.month) as month,
+        sum(e.total_salary) as total_salary
+
+from
+        
+        Employee_fact_V1 e,
+        e_time_DIM et,
+        department_dim d,
+        job_dim j
+
+where   e.time_id = et.time_id and
+        e.department_id = d.department_id and
+        e.job_id = j.job_id      
+group by ROLLUP(
+
+        d.department_name,
+        j.job_title,
+        et.month);
+
+
+
+
+--What is the number of employees by each country and by each city?
+
+--CUBE QUERY
+
+select 
+        decode(grouping(c.country_name),1, 'All_Country',c.country_name) as country_name,
+        decode(grouping(e.city),1, 'All_City',e.city) as city,
+        sum(e.total_employees) as total_emp
+        
+from
+
+        Employee_fact_V1 e,
+        country_dim c
+where   e.country_id = c.country_id
+
+group by CUBE(
+
+        c.country_name,
+        e.city);
+        
+
+
+
+
+----------------Reports with Rank and Percent_rank--------------------
+----------------------------------------------------------------------
+
+
+--Top  3 selling products
+
+select product_name,total_orders,orders_rank from(
+select 
+
+    p.product_name,
+    sum(s.total_orders) as total_orders,
+    dense_rank() OVER (ORDER BY sum(s.total_orders) desc) AS orders_rank
+from
+
+    sales_fact_V1 s,
+    product_dim p
+    
+where
+
+    s.product_id = p.product_id
+    
+group by 
+    p.product_name)
+where orders_rank <=3;
+
+
+--Top 10% of total revenue
+
+
+select * from (
+select 
+
+        year,
+        month,
+        sum(total_sales) as total_revenue,
+        percent_rank() over (order by sum(total_sales)) as "Percent Rank"
+
+from 
+        sales_fact_V1 s,
+        time_dim t
+where   s.time_id = t.time_id
+group by
+
+        year,
+        month
+)
+where "Percent Rank" >= 0.9;
+
+
+
+
+
+----------------Reports with Partitions-------------------------------
+----------------------------------------------------------------------
+
+
+
+--TOP 3 PRODUCTS BY EACH YEAR
+
+select * from(
+select 
+    t.year,
+    p.product_name,
+    sum(s.total_orders) as total_orders,
+    dense_rank() OVER (PARTITION BY t.year ORDER BY sum(s.total_orders) desc) AS orders_rank
+from
+
+    sales_fact_V1 s,
+    time_dim t,
+    product_dim p
+
+where
+    
+    
+    s.time_id = t.time_id and
+    s.product_id = p.product_id
+    
+group by 
+
+    p.product_name,
+    t.year)
+where orders_rank <=3;
+
+
+
+------ Top 2 most employed jobs by each country
+
+select * from(
+select
+        c.country_name,
+        j.job_title,
+        sum(e.total_employees) as total_employees,
+        dense_rank() OVER (partition by c.country_name order by sum(e.total_employees) desc) as rank
+        
+from
+
+    employee_fact_v1 e,
+    country_dim c,
+    job_dim j
+    
+where
+
+    e.job_id = j.job_id and
+    e.country_id = c.country_id
+
+    
+    
+group by 
+    
+    c.country_name,
+        j.job_title)
+where rank <=2;
+
+
+
+
+----------------Reports with Moving and Cumulative Aggregates --------
+----------------------------------------------------------------------
+
+
+
+--total cumulative sales by each quarter of each year
+
+select 
+    
+    se.season_id,
+    se.season_desc,
+    t.year,
+    to_char(sum(s.total_sales),'9,999,999,999') as total_sales,
+    to_char(sum(sum(s.total_sales)) over (ORDER BY t.year,se.season_id ROWS UNBOUNDED PRECEDING),
+    '9,999,999,999') AS CUM_SALES
+    --dense_rank() OVER (PARTITION BY se.season_desc ORDER BY sum(s.total_orders) desc) AS orders_rank
+from
+
+    sales_fact_V1 s,
+    season_dim se,
+    time_dim t
+    
+where
+    s.season_id = se.season_id and
+    s.time_id = t.time_id
+group by 
+
+    se.season_id,
+    se.season_desc,
+    t.year;    
+
+
+
+--total cumulative orders by each quarter of each year with moving window of 2 quarters
+
+
+select 
+    
+    se.season_id,
+    se.season_desc,
+    t.year,
+    to_char(sum(s.total_orders),'9,999,999,999') as total_orders,
+    to_char(sum(sum(s.total_orders)) over (ORDER BY t.year,se.season_id ROWS 2 PRECEDING),
+    '9,999,999,999') AS cum_orders
+    --dense_rank() OVER (PARTITION BY se.season_desc ORDER BY sum(s.total_orders) desc) AS orders_rank
+from
+
+    sales_fact_V1 s,
+    season_dim se,
+    time_dim t
+    
+where
+    s.season_id = se.season_id and
+    s.time_id = t.time_id
+group by 
+
+    se.season_id,
+    se.season_desc,
+    t.year;
+    
+

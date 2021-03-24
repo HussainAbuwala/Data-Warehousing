@@ -1,0 +1,178 @@
+
+------------INCORRECT DATA DETECTION SQL CODE SHOWN BELOW-----------------
+--------------------------------------------------------------------------
+
+-- Same customer ID repeated twice in customers table [1]
+select customer_id, count(*)
+from hosales.customers
+group by customer_id
+having count(*)>1;
+
+select *
+from hosales.customers
+where customer_id= 101;
+
+---WILL USE DISTINCT WHEN COPYING CUSTOMER TABLE
+
+-- Same product ID with same warehouse ID in inventories table  [2]
+select product_id, warehouse_id, count(*)
+from hosales.inventories
+group by product_id, warehouse_id
+having count(*)>1;
+
+-- WILL USE DISTINCT WHEN COPYING INVENTORIES TABLE
+
+
+-- Same order ID with different attributes in orders table    [3]
+select order_id, count(*)
+from hosales.orders
+group by order_id
+having count(*)>1;
+
+
+select *
+from hosales.orders
+where order_id= 2359;
+
+--NO NEED TO CLEAN AS IT DOES NOT AFFECT OUR WAREHOUSE
+
+-- Min salary greater than max salary  [4]
+
+select *
+from hosales.jobs 
+where min_salary > max_salary;
+
+-- --NO NEED TO CLEAN AS IT DOES NOT AFFECT OUR WAREHOUSE
+
+
+-- Salary of an employee is negative [5]
+select *
+from hosales.employees
+where salary<0;
+
+
+--CLEANING
+--AFTER COPYING WE DO THE CLEANING IN EMPLOYEES TABLE
+---update Employees
+    --set salary = 4800
+    --where employee_id = 106;
+
+-- Manager ID is not in the employee table of the company [6]
+
+select *
+from hosales.employees a
+where a.manager_id not in (select b.employee_ID from hosales.employees b);
+
+-- --NO NEED TO CLEAN AS IT DOES NOT AFFECT OUR WAREHOUSE
+
+
+-- List price less than minimum preice [7]
+
+
+select * 
+from HOSALES.products
+where list_price < Min_price;
+
+-- --NO NEED TO CLEAN AS IT DOES NOT AFFECT OUR WAREHOUSE
+
+-- Quantiy of product is 0 in orders items table
+
+select * from hosales.order_items where quantity = 0;
+
+---Need to clean as it will affect warehouse
+
+
+--------------------------
+--------------------------
+
+
+------------DATA CLEANING AND COPYING TABLE INTO USER ACCOUNT FROM dtaniar-----------------
+-------------------------------------------------------------------------------------------
+
+--CHANGES MADE FOR DATA CLEANING FROM HERE
+
+--PROBLEM - -- Salary of an employee is negative [5]
+create table Employees as 
+select * from hosales.Employees;
+
+--SOLUTION
+update Employees
+  set salary = 4800
+  where employee_id = 106;
+commit;
+  
+select * from Employees order by EMPLOYEE_ID;
+
+--PROBLEM ---- Same customer ID repeated twice in customers table [1]
+
+create table Customers as 
+
+---SOLUTION USE DISTINCT
+select distinct * from hosales.Customers;
+
+select * from Customers order by customer_id;
+
+--PROBLEM -- Same product ID with same warehouse ID in inventories table  [2]
+
+create table Inventories as 
+---SOLUTION USE DISTINCT
+
+select distinct * from hosales.Inventories;
+
+select * from Inventories order by product_id;
+
+----- Quantiy of product is 0 in orders items table
+create table Order_Items as 
+select * from hosales.Order_Items;
+
+delete from Order_Items where quantity = 0;
+
+--Other tables are directly copied as even though some will still have errors, it will not affect data warehouse.
+
+create table Departments as 
+select * from hosales.Departments;
+
+create table Jobs as 
+select * from hosales.Jobs;
+
+create table Job_History as 
+select * from hosales.Job_History;
+
+create table Regions as 
+select * from hosales.Regions;
+
+create table Countries as 
+select * from hosales.Countries;
+
+create table Locations as 
+select * from hosales.Locations;
+
+create table Products as 
+select * from hosales.Products;
+
+create table Orders as 
+select * from hosales.Orders;
+
+create table Warehouses as 
+select * from hosales.Warehouses;
+
+create table Promotions as 
+select * from hosales.Promotions;
+
+select * from Employees;
+select * from Departments;
+select * from Jobs;
+select * from Job_History;
+select * from Regions;
+select * from Countries;
+select * from Locations;
+select * from Customers;
+select * from Products;
+select * from Orders;
+select * from Order_Items;
+select * from Warehouses;
+select * from Inventories;
+select * from Promotions;
+
+
+commit;

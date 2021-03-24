@@ -1,0 +1,61 @@
+--DROPPING OPERATIONAL TABLES
+drop table Employees;
+drop table Departments;
+drop table Jobs;
+drop table Job_History;
+drop table Regions;
+drop table Countries;
+drop table Locations;
+drop table Customers;
+drop table Products;
+drop table Orders;
+drop table Order_Items;
+drop table Warehouses;
+drop table Inventories;
+drop table Promotions;
+
+
+--DROPPING FROM StarSchema_V1 Tables
+drop table product_history;
+drop table order_mode_DIM;
+drop table region_DIM;
+drop table season_DIM;
+drop table bridge_table;
+drop table WarehouseToBridge;
+drop table product_DIM;
+drop table time_DIM;
+drop table sales_temp_fact_v1;
+drop table sales_fact_V1;
+drop table credit_type_DIM;
+drop table country_DIM;
+drop table Customer_temp_fact_v1;
+drop table Customer_fact_V1;
+drop table e_time_DIM;
+drop table city_DIM;
+drop table job_DIM;
+drop table department_DIM;
+drop table location_DIM;
+drop table Employee_fact_V1;
+
+--DROPPING FROM StarSchema_V2 TABLES
+
+drop table product_history_V2;
+drop table order_mode_DIM_V2;
+drop table region_DIM_V2;
+drop table season_DIM_V2;
+drop table bridge_table_V2;
+drop table WarehouseToBridge_V2;
+drop table product_DIM_V2;
+drop table time_DIM_V2;
+drop table sales_temp_fact_V2;
+drop table sales_fact_V2;
+drop table credit_type_DIM_V2;
+drop table country_DIM_V2;
+drop table Customer_temp_fact_V2;
+drop table Customer_fact_V2;
+drop table e_time_DIM_V2;
+drop table city_DIM_V2;
+drop table job_DIM_V2;
+drop table department_DIM_V2;
+drop table location_DIM_V2;
+drop table Employee_fact_V2;
